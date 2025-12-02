@@ -20,15 +20,19 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Create Project Config (Fixing the Error)
+    - name: Force Upgrade Build Tools (The Fix)
       run: |
+        # 1. Create a settings.gradle that knows where to find the plugins
         echo "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }" > settings.gradle
         echo "dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }" >> settings.gradle
         echo "rootProject.name = 'ShortsBlocker'" >> settings.gradle
         echo "include ':app'" >> settings.gradle
+        
+        # 2. Force the system to create a Gradle Wrapper for version 8.2 (Required for your code)
+        gradle wrapper --gradle-version 8.2
 
-    - name: Build with Gradle
-      run: gradle assembleDebug --no-daemon
+    - name: Build App (Using New Wrapper)
+      run: ./gradlew assembleDebug --no-daemon
 
     - name: Upload APK
       uses: actions/upload-artifact@v3
