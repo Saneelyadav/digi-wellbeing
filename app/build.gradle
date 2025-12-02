@@ -1,5 +1,6 @@
 plugins {
-    id 'com.android.application'
+    // I added the version number below. This was the missing key!
+    id 'com.android.application' version '8.1.0'
 }
 
 android {
