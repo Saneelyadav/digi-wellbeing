@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.shortsblocker'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.example.shortsblocker"
+        minSdk 24
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+}
