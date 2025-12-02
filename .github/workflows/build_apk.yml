@@ -18,12 +18,14 @@ jobs:
         distribution: 'temurin'
 
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v2
+      uses: android-actions/setup-android@v3
 
-    - name: Create Project Files
+    - name: Create Project Config (Fixing the Error)
       run: |
-        echo "include ':app'" > settings.gradle
-        touch local.properties
+        echo "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }" > settings.gradle
+        echo "dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }" >> settings.gradle
+        echo "rootProject.name = 'ShortsBlocker'" >> settings.gradle
+        echo "include ':app'" >> settings.gradle
 
     - name: Build with Gradle
       run: gradle assembleDebug --no-daemon
