@@ -15,6 +15,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
+        # We keep this at v3 because it works perfectly with the setup
         uses: gradle/gradle-build-action@v3
         with:
           gradle-version: 8.2
@@ -23,6 +24,7 @@ jobs:
         run: gradle assembleDebug
 
       - name: Upload APK
+        # THIS WAS THE ERROR. I have changed it to v4 below.
         uses: actions/upload-artifact@v4
         with:
           name: ShortsBlockerApp
