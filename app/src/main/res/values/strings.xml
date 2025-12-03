@@ -1,0 +1,4 @@
+<resources>
+        <string name="app_name">Shorts Blocker</string>
+        <string name="accessibility_service_description">Helps you focus by blocking YouTube Shorts automatically.</string>
+    </resources>
