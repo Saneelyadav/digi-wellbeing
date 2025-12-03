@@ -15,7 +15,6 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        # This forces the builder to use the new Gradle 8.2 version
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: 8.2
