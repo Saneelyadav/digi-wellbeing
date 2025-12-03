@@ -1,41 +1,30 @@
-name: Build Android App
-
-on:
-  push:
-    branches: [ "main" ]
+name: Build App
+on: [push]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        # This forces the builder to use the new Gradle 8.2 version
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: 8.2
 
-    - name: Force Upgrade Build Tools (The Fix)
-      run: |
-        # 1. Create a settings.gradle that knows where to find the plugins
-        echo "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }" > settings.gradle
-        echo "dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }" >> settings.gradle
-        echo "rootProject.name = 'ShortsBlocker'" >> settings.gradle
-        echo "include ':app'" >> settings.gradle
-        
-        # 2. Force the system to create a Gradle Wrapper for version 8.2 (Required for your code)
-        gradle wrapper --gradle-version 8.2
+      - name: Build APK
+        run: gradle assembleDebug
 
-    - name: Build App (Using New Wrapper)
-      run: ./gradlew assembleDebug --no-daemon
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v3
-      with:
-        name: shorts-blocker-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: ShortsBlockerApp
+          path: app/build/outputs/apk/debug/app-debug.apk
