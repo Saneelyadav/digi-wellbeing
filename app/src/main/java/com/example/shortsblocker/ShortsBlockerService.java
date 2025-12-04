@@ -5,21 +5,22 @@ import android.content.SharedPreferences;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
+import java.util.List;
 
 public class ShortsBlockerService extends AccessibilityService {
 
     // --- CONFIGURATION ---
-    // 1 Minute (in milliseconds)
-    private static final long ALLOWED_TIME_MS = 60 * 1000; 
-    // 20 Minutes (in milliseconds)
-    private static final long BLOCK_DURATION_MS = 20 * 60 * 1000;
+    private static final long ALLOWED_TIME_MS = 60 * 1000; // 1 Minute
+    private static final long BLOCK_DURATION_MS = 20 * 60 * 1000; // 20 Minutes
 
     private long currentSessionStart = 0;
     private SharedPreferences prefs;
+    private long lastToastTime = 0; // To prevent spamming toasts
 
     @Override
     public void onServiceConnected() {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
+        showToast("Saneel.AI Active: Scanning for Shorts...");
     }
 
     @Override
@@ -27,82 +28,77 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // NEW DETECTION METHOD: Recursive ID Scan
-        // We look for internal IDs named "reel" (YouTube's code name for Shorts)
-        if (isShortsPlayerVisible(rootNode)) {
+        // --- DETECTION LOGIC ---
+        
+        // 1. Check for "Shorts" text (General Indicator)
+        boolean hasShortsText = !rootNode.findAccessibilityNodeInfosByText("Shorts").isEmpty();
+        
+        // 2. Check for "Home" or "Create" (Bottom Nav Indicators)
+        boolean hasHomeButton = !rootNode.findAccessibilityNodeInfosByText("Home").isEmpty();
+        boolean hasCreateButton = !rootNode.findAccessibilityNodeInfosByText("Create").isEmpty();
+        boolean isNavBarVisible = hasHomeButton || hasCreateButton;
+
+        // 3. Check for "Remix" (Strong Shorts Indicator)
+        boolean hasRemixButton = !rootNode.findAccessibilityNodeInfosByText("Remix").isEmpty();
+
+        // --- DECISION ---
+        boolean isWatchingShorts = false;
+
+        if (hasRemixButton) {
+            // "Remix" button is almost exclusively on Shorts
+            isWatchingShorts = true;
+        } else if (hasShortsText && !isNavBarVisible) {
+            // Classic check: "Shorts" is on screen, but Bottom Nav is gone
+            isWatchingShorts = true;
+        }
+
+        // --- ACTION ---
+        if (isWatchingShorts) {
             handleShortsWatching();
         } else {
-            // Not watching Shorts? Reset the 1-minute timer (but NOT the 20-min penalty)
+            // Safe (Home screen, Long video, etc.)
             currentSessionStart = 0;
         }
-    }
-
-    // This function recursively scans the screen for the "reel" player
-    private boolean isShortsPlayerVisible(AccessibilityNodeInfo node) {
-        if (node == null) return false;
-
-        // 1. Check the ID of the current element
-        if (node.getViewIdResourceName() != null) {
-            String id = node.getViewIdResourceName().toLowerCase();
-            // "reel_player" or "reel_recycler" are the specific IDs for the Shorts feed
-            if (id.contains("reel_player") || id.contains("reel_recycler")) {
-                return true;
-            }
-        }
-        
-        // 2. Also Check Description (Backup method)
-        if (node.getContentDescription() != null) {
-            String desc = node.getContentDescription().toString().toLowerCase();
-            // "shorts player" is sometimes used in accessibility descriptions
-            if (desc.contains("shorts player")) {
-                return true;
-            }
-        }
-
-        // 3. Scan all children (Recursive)
-        int childCount = node.getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (isShortsPlayerVisible(child)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void handleShortsWatching() {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // --- SCENARIO A: The Penalty Box (20 Mins) ---
+        // --- SCENARIO A: Penalty Box ---
         if (now < blockUntil) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             
             long minsLeft = (blockUntil - now) / 60000;
-            if (now % 5000 < 100) { 
-                Toast.makeText(this, "Saneel.AI: Cooldown active. Wait " + (minsLeft + 1) + " mins.", Toast.LENGTH_SHORT).show();
+            // Show toast only every 5 seconds
+            if (now - lastToastTime > 5000) { 
+                showToast("Cooldown Active: " + (minsLeft + 1) + "m left");
+                lastToastTime = now;
             }
             return;
         }
 
-        // --- SCENARIO B: Watching (1 Min Timer) ---
+        // --- SCENARIO B: Watching Timer ---
         if (currentSessionStart == 0) {
-            currentSessionStart = now; 
+            currentSessionStart = now;
+            showToast("Timer Started: 1 min allowed");
         }
 
         long timeSpent = now - currentSessionStart;
 
         if (timeSpent > ALLOWED_TIME_MS) {
-            // TIME IS UP!
             performGlobalAction(GLOBAL_ACTION_BACK);
             
-            // Set 20 minute penalty
             long newBlockUntil = now + BLOCK_DURATION_MS;
             prefs.edit().putLong("block_until", newBlockUntil).apply();
             
-            Toast.makeText(this, "1 min limit reached! See you in 20 mins.", Toast.LENGTH_LONG).show();
+            showToast("Time's up! Blocked for 20 mins.");
             currentSessionStart = 0;
         }
+    }
+
+    private void showToast(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     @Override
