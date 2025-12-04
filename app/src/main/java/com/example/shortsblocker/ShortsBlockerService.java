@@ -15,12 +15,12 @@ public class ShortsBlockerService extends AccessibilityService {
 
     private long currentSessionStart = 0;
     private SharedPreferences prefs;
-    private long lastToastTime = 0; // To prevent spamming toasts
+    private long lastToastTime = 0;
 
     @Override
     public void onServiceConnected() {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
-        showToast("Saneel.AI Active: Scanning for Shorts...");
+        Toast.makeText(this, "Saneel.AI: Remix Detector Loaded", Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -28,35 +28,27 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // --- DETECTION LOGIC ---
+        // --- THE "REMIX" STRATEGY ---
+        // We strictly look for the "Remix" button.
+        // It is the most unique button on the Shorts overlay.
         
-        // 1. Check for "Shorts" text (General Indicator)
-        boolean hasShortsText = !rootNode.findAccessibilityNodeInfosByText("Shorts").isEmpty();
+        boolean isShorts = false;
         
-        // 2. Check for "Home" or "Create" (Bottom Nav Indicators)
-        boolean hasHomeButton = !rootNode.findAccessibilityNodeInfosByText("Home").isEmpty();
-        boolean hasCreateButton = !rootNode.findAccessibilityNodeInfosByText("Create").isEmpty();
-        boolean isNavBarVisible = hasHomeButton || hasCreateButton;
-
-        // 3. Check for "Remix" (Strong Shorts Indicator)
-        boolean hasRemixButton = !rootNode.findAccessibilityNodeInfosByText("Remix").isEmpty();
-
-        // --- DECISION ---
-        boolean isWatchingShorts = false;
-
-        if (hasRemixButton) {
-            // "Remix" button is almost exclusively on Shorts
-            isWatchingShorts = true;
-        } else if (hasShortsText && !isNavBarVisible) {
-            // Classic check: "Shorts" is on screen, but Bottom Nav is gone
-            isWatchingShorts = true;
+        List<AccessibilityNodeInfo> remixNodes = rootNode.findAccessibilityNodeInfosByText("Remix");
+        
+        // We must loop through results to ensure it's actually visible
+        // (sometimes hidden elements exist in the background)
+        for (AccessibilityNodeInfo node : remixNodes) {
+            if (node.isVisibleToUser()) {
+                isShorts = true;
+                break;
+            }
         }
 
-        // --- ACTION ---
-        if (isWatchingShorts) {
+        if (isShorts) {
             handleShortsWatching();
         } else {
-            // Safe (Home screen, Long video, etc.)
+            // "Remix" button is gone. User is safe.
             currentSessionStart = 0;
         }
     }
@@ -70,7 +62,6 @@ public class ShortsBlockerService extends AccessibilityService {
             performGlobalAction(GLOBAL_ACTION_BACK);
             
             long minsLeft = (blockUntil - now) / 60000;
-            // Show toast only every 5 seconds
             if (now - lastToastTime > 5000) { 
                 showToast("Cooldown Active: " + (minsLeft + 1) + "m left");
                 lastToastTime = now;
@@ -81,7 +72,7 @@ public class ShortsBlockerService extends AccessibilityService {
         // --- SCENARIO B: Watching Timer ---
         if (currentSessionStart == 0) {
             currentSessionStart = now;
-            showToast("Timer Started: 1 min allowed");
+            showToast("Shorts Detected. 1 min remaining.");
         }
 
         long timeSpent = now - currentSessionStart;
