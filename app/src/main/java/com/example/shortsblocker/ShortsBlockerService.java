@@ -2,12 +2,9 @@ package com.example.shortsblocker;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.SharedPreferences;
-import android.graphics.Rect;
-import android.content.res.Resources;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
-import java.util.List;
 
 public class ShortsBlockerService extends AccessibilityService {
 
@@ -18,14 +15,11 @@ public class ShortsBlockerService extends AccessibilityService {
     private long currentSessionStart = 0;
     private SharedPreferences prefs;
     private long lastToastTime = 0;
-    private int screenWidth = 0;
 
     @Override
     public void onServiceConnected() {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
-        // Get the width of the phone screen
-        screenWidth = Resources.getSystem().getDisplayMetrics().widthPixels;
-        showToast("Saneel.AI: Geometry Tracker Loaded");
+        showToast("Saneel.AI: Remix Scanner Loaded");
     }
 
     @Override
@@ -33,43 +27,47 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        boolean isWatchingShorts = false;
-
-        // --- STRATEGY: CHECK BUTTON POSITIONS ---
-        // On Shorts, "Like", "Dislike", "Comment", and "Share" are on the right edge.
-        // We look for ANY of these.
+        // --- THE ROBUST REMIX SCANNER ---
+        // We recursively search every element on screen for the word "remix"
         
-        if (checkIfButtonIsOnRightEdge(rootNode, "Like")) isWatchingShorts = true;
-        else if (checkIfButtonIsOnRightEdge(rootNode, "Share")) isWatchingShorts = true;
-        else if (checkIfButtonIsOnRightEdge(rootNode, "Comment")) isWatchingShorts = true;
-        else if (checkIfButtonIsOnRightEdge(rootNode, "Remix")) isWatchingShorts = true;
-
-        // --- ACTION ---
-        if (isWatchingShorts) {
+        if (isRemixButtonVisible(rootNode)) {
             handleShortsWatching();
         } else {
-            // Buttons are not on the right edge. Must be Home or Normal video.
+            // Remix button not found. Safe.
             currentSessionStart = 0;
         }
     }
 
-    // Helper function to check if a specific button is on the Right Side
-    private boolean checkIfButtonIsOnRightEdge(AccessibilityNodeInfo root, String text) {
-        // Search for nodes with this text (or Description)
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
-        
-        for (AccessibilityNodeInfo node : nodes) {
-            if (!node.isVisibleToUser()) continue;
+    // Recursive function that digs deep into the layout
+    private boolean isRemixButtonVisible(AccessibilityNodeInfo node) {
+        if (node == null) return false;
 
-            // Get the position of the button
-            Rect outBounds = new Rect();
-            node.getBoundsInScreen(outBounds);
-            
-            // GEOMETRY CHECK:
-            // If the Left side of the button is past 75% of the screen width,
-            // it is "Sticking to the Right Edge".
-            if (outBounds.left > (screenWidth * 0.75)) {
-                return true; // Found it on the right!
+        // 1. Get Text and Description
+        CharSequence textSeq = node.getText();
+        CharSequence descSeq = node.getContentDescription();
+
+        String text = (textSeq != null) ? textSeq.toString().toLowerCase() : "";
+        String desc = (descSeq != null) ? descSeq.toString().toLowerCase() : "";
+
+        // 2. Check for "remix"
+        // We check if it CONTAINS "remix", so "Remix this video" also triggers it.
+        boolean match = text.contains("remix") || desc.contains("remix");
+
+        // 3. Verify it is visible
+        if (match && node.isVisibleToUser()) {
+            return true; // FOUND IT!
+        }
+
+        // 4. If not found here, check all children (The Loop)
+        int count = node.getChildCount();
+        for (int i = 0; i < count; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                if (isRemixButtonVisible(child)) {
+                    child.recycle(); // Clean up memory
+                    return true;
+                }
+                child.recycle();
             }
         }
         return false;
@@ -79,7 +77,7 @@ public class ShortsBlockerService extends AccessibilityService {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // --- SCENARIO A: Penalty Box (20 Mins) ---
+        // --- SCENARIO A: Penalty Box ---
         if (now < blockUntil) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             
@@ -91,10 +89,10 @@ public class ShortsBlockerService extends AccessibilityService {
             return;
         }
 
-        // --- SCENARIO B: Watching Timer (1 Min) ---
+        // --- SCENARIO B: Watching Timer ---
         if (currentSessionStart == 0) {
             currentSessionStart = now;
-            showToast("Shorts Detected. 1 min remaining.");
+            showToast("Shorts Detected (Remix Found)");
         }
 
         long timeSpent = now - currentSessionStart;
@@ -111,6 +109,7 @@ public class ShortsBlockerService extends AccessibilityService {
     }
 
     private void showToast(String message) {
+        // Only toast on the main thread to prevent crashes
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
