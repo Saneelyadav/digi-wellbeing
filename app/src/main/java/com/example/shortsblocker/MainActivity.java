@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
 
         // 3. Subtitle
         TextView subtitle = new TextView(this);
-        subtitle.setText("Smart Shorts Manager");
+        subtitle.setText("The App You Can Trust On");
         subtitle.setTextSize(16);
         subtitle.setTextColor(Color.GRAY);
         subtitle.setGravity(Gravity.CENTER);
@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
 
         // 4. Instructions
         TextView desc = new TextView(this);
-        desc.setText("Trust it,if you trust me\n\nStatus: 1 min Watch / 20 min Block");
+        desc.setText("Smart Shorts Blocker\n\nStatus: 1 min Watch / 20 min Block");
         desc.setTextSize(14);
         desc.setTextColor(Color.WHITE);
         desc.setGravity(Gravity.CENTER);
