@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
 
         // 4. Instructions
         TextView desc = new TextView(this);
-        desc.setText("Status: 1 min Watch / 20 min Block\n\nTo start, click the button below and turn ON 'Shorts Blocker'.");
+        desc.setText("Trust it,if you trust me\n\nStatus: 1 min Watch / 20 min Block");
         desc.setTextSize(14);
         desc.setTextColor(Color.WHITE);
         desc.setGravity(Gravity.CENTER);
