@@ -11,11 +11,14 @@ import android.widget.Toast;
 public class ShortsBlockerService extends AccessibilityService {
 
     // --- CONFIGURATION ---
-    private static final long ALLOWED_TIME_MS = 60 * 1000; // 1 Minute
-    private static final long BLOCK_DURATION_MS = 20 * 60 * 1000; // 20 Minutes
-    
+    private static final long ALLOWED_TIME_MS = 60 * 1000; // 1 Minute Limit
+    private static final long BLOCK_DURATION_MS = 20 * 60 * 1000; // 20 Minutes Penalty
+    private static final long RESET_TIMEOUT_MS = 10 * 1000; // 10 Seconds Memory (Anti-Scroll)
+
     // VARIABLES
     private long accumulatedTime = 0; 
+    private long lastTimeRemixSeen = 0; 
+    
     private SharedPreferences prefs;
     private Handler handler;
     private Runnable heartbeatRunnable;
@@ -26,8 +29,8 @@ public class ShortsBlockerService extends AccessibilityService {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
+        showToast("Saneel.AI: Active");
         startHeartbeat();
-        showToast("Saneel.AI: Battery Optimized Mode");
     }
 
     private void startHeartbeat() {
@@ -40,10 +43,12 @@ public class ShortsBlockerService extends AccessibilityService {
                 try {
                     checkScreenState();
                 } catch (Exception e) {
-                    // Prevent crashes
+                    // Prevent crash to keep service alive
                 }
-                // Check again in 1 second
-                handler.postDelayed(this, 1000); 
+                // Schedule next run in 1 second
+                if (handler != null) {
+                    handler.postDelayed(this, 1000);
+                }
             }
         };
         handler.post(heartbeatRunnable);
@@ -53,35 +58,36 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // --- BATTERY SAVER CHECK ---
-        // Before we do any heavy scanning, check WHICH APP is open.
+        // 1. BATTERY & SAFETY GUARD
+        // If the open app is NOT YouTube, stop counting immediately.
         CharSequence packageName = rootNode.getPackageName();
-        
-        // If we are NOT in YouTube, stop immediately. Don't waste power.
         if (packageName == null || !packageName.toString().equals("com.google.android.youtube")) {
-            // We are in WhatsApp, Home Screen, or Phone is locked.
-            // Reset the internal timer because user is definitely not watching Shorts.
             accumulatedTime = 0;
             return; 
         }
 
-        // --- IF WE ARE HERE, YOUTUBE IS OPEN ---
-        // Now it is worth spending battery to scan for the button.
-
+        // 2. SCANNING
         boolean isShorts = isRemixButtonVisible(rootNode);
+        long now = System.currentTimeMillis();
 
         if (isShorts) {
+            // Found "Remix" -> User is watching Shorts
+            lastTimeRemixSeen = now;
             accumulatedTime += 1000; // Add 1 second
             
-            // Show status every 10s
+            // Toast status every 10s
             if (accumulatedTime % 10000 == 0) {
-                showToast("Saneel.AI: " + (accumulatedTime/1000) + "s / 60s");
+                showToast("Used: " + (accumulatedTime/1000) + "s / 60s");
             }
         } else {
-            // YouTube is open, but we don't see "Remix" (probably Home screen)
-            accumulatedTime = 0;
+            // "Remix" NOT found (Home Screen, Long Video, or Scrolling)
+            // Only reset if they have been gone for > 10 seconds
+            if ((now - lastTimeRemixSeen) > RESET_TIMEOUT_MS) {
+                accumulatedTime = 0;
+            }
         }
 
+        // 3. CHECK LIMITS
         checkTimeLimit();
     }
 
@@ -89,30 +95,32 @@ public class ShortsBlockerService extends AccessibilityService {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // --- A: PENALTY BOX ---
+        // PENALTY BOX
         if (now < blockUntil) {
-            performGlobalAction(GLOBAL_ACTION_BACK);
+            // Explicitly use the Service context for the action
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
             if (accumulatedTime > 0) { 
                 long minsLeft = (blockUntil - now) / 60000;
-                showToast("Blocked! " + (minsLeft + 1) + "m penalty left.");
+                showToast("Blocked! " + (minsLeft + 1) + "m left.");
             }
             accumulatedTime = 0;
             return;
         }
 
-        // --- B: TIME IS UP ---
+        // TIME IS UP
         if (accumulatedTime >= ALLOWED_TIME_MS) {
-            performGlobalAction(GLOBAL_ACTION_BACK);
-            performGlobalAction(GLOBAL_ACTION_BACK); // Double Kick
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); 
 
             long newBlockUntil = now + BLOCK_DURATION_MS;
             prefs.edit().putLong("block_until", newBlockUntil).apply();
             
-            showToast("1 Minute Reached! See you in 20 mins.");
+            showToast("Limit Reached! Blocked for 20 mins.");
             accumulatedTime = 0; 
         }
     }
 
+    // Recursive Scanner to find "Remix" button deep in the layout
     private boolean isRemixButtonVisible(AccessibilityNodeInfo node) {
         if (node == null) return false;
         
@@ -121,6 +129,7 @@ public class ShortsBlockerService extends AccessibilityService {
         String text = (textSeq != null) ? textSeq.toString().toLowerCase() : "";
         String desc = (descSeq != null) ? descSeq.toString().toLowerCase() : "";
         
+        // This is the Safety Key: We ONLY count it if we see "remix"
         if ((text.contains("remix") || desc.contains("remix")) && node.isVisibleToUser()) {
             return true;
         }
@@ -143,7 +152,8 @@ public class ShortsBlockerService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) { }
 
     private void showToast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        // Fix: Use ShortsBlockerService.this to avoid context errors
+        Toast.makeText(ShortsBlockerService.this, message, Toast.LENGTH_SHORT).show();
     }
 
     @Override
