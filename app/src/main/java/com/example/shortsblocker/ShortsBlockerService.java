@@ -13,7 +13,7 @@ public class ShortsBlockerService extends AccessibilityService {
     // --- CONFIGURATION ---
     private static final long ALLOWED_TIME_MS = 60 * 1000; // 1 Minute Limit
     private static final long BLOCK_DURATION_MS = 20 * 60 * 1000; // 20 Minutes Penalty
-    private static final long RESET_TIMEOUT_MS = 10 * 1000; // 10 Seconds Memory (Anti-Scroll)
+    private static final long RESET_TIMEOUT_MS = 10 * 1000; // 10 Seconds Memory
 
     // VARIABLES
     private long accumulatedTime = 0; 
@@ -29,7 +29,7 @@ public class ShortsBlockerService extends AccessibilityService {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        showToast("Saneel.AI: Active");
+        showToast("Saneel.AI: Active (Targeted Blocking)");
         startHeartbeat();
     }
 
@@ -42,10 +42,7 @@ public class ShortsBlockerService extends AccessibilityService {
             public void run() {
                 try {
                     checkScreenState();
-                } catch (Exception e) {
-                    // Prevent crash to keep service alive
-                }
-                // Schedule next run in 1 second
+                } catch (Exception e) {}
                 if (handler != null) {
                     handler.postDelayed(this, 1000);
                 }
@@ -58,8 +55,7 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // 1. BATTERY & SAFETY GUARD
-        // If the open app is NOT YouTube, stop counting immediately.
+        // 1. BATTERY GUARD
         CharSequence packageName = rootNode.getPackageName();
         if (packageName == null || !packageName.toString().equals("com.google.android.youtube")) {
             accumulatedTime = 0;
@@ -71,43 +67,44 @@ public class ShortsBlockerService extends AccessibilityService {
         long now = System.currentTimeMillis();
 
         if (isShorts) {
-            // Found "Remix" -> User is watching Shorts
             lastTimeRemixSeen = now;
-            accumulatedTime += 1000; // Add 1 second
+            accumulatedTime += 1000; 
             
-            // Toast status every 10s
             if (accumulatedTime % 10000 == 0) {
                 showToast("Used: " + (accumulatedTime/1000) + "s / 60s");
             }
         } else {
-            // "Remix" NOT found (Home Screen, Long Video, or Scrolling)
-            // Only reset if they have been gone for > 10 seconds
+            // Only reset if gone for > 10 seconds
             if ((now - lastTimeRemixSeen) > RESET_TIMEOUT_MS) {
                 accumulatedTime = 0;
             }
         }
 
-        // 3. CHECK LIMITS
-        checkTimeLimit();
+        // 3. CHECK LIMITS (Pass 'isShorts' so we know WHAT to block)
+        checkTimeLimit(isShorts);
     }
 
-    private void checkTimeLimit() {
+    private void checkTimeLimit(boolean isShortsCurrent) {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // PENALTY BOX
+        // --- PENALTY BOX LOGIC ---
         if (now < blockUntil) {
-            // Explicitly use the Service context for the action
-            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
-            if (accumulatedTime > 0) { 
+            // CRITICAL FIX: Only block if user is CURRENTLY trying to watch a Short
+            if (isShortsCurrent) {
+                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
+                
+                // Show message
                 long minsLeft = (blockUntil - now) / 60000;
-                showToast("Blocked! " + (minsLeft + 1) + "m left.");
+                showToast("Blocked! " + (minsLeft + 1) + "m penalty left.");
             }
+            // If isShortsCurrent is FALSE (Home screen), we do NOTHING.
+            
             accumulatedTime = 0;
             return;
         }
 
-        // TIME IS UP
+        // --- TIME IS UP LOGIC ---
         if (accumulatedTime >= ALLOWED_TIME_MS) {
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); 
@@ -120,7 +117,7 @@ public class ShortsBlockerService extends AccessibilityService {
         }
     }
 
-    // Recursive Scanner to find "Remix" button deep in the layout
+    // Recursive Scanner
     private boolean isRemixButtonVisible(AccessibilityNodeInfo node) {
         if (node == null) return false;
         
@@ -129,7 +126,6 @@ public class ShortsBlockerService extends AccessibilityService {
         String text = (textSeq != null) ? textSeq.toString().toLowerCase() : "";
         String desc = (descSeq != null) ? descSeq.toString().toLowerCase() : "";
         
-        // This is the Safety Key: We ONLY count it if we see "remix"
         if ((text.contains("remix") || desc.contains("remix")) && node.isVisibleToUser()) {
             return true;
         }
@@ -152,7 +148,6 @@ public class ShortsBlockerService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) { }
 
     private void showToast(String message) {
-        // Fix: Use ShortsBlockerService.this to avoid context errors
         Toast.makeText(ShortsBlockerService.this, message, Toast.LENGTH_SHORT).show();
     }
 
