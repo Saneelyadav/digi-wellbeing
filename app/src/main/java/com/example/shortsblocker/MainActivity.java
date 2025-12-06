@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
 
         // 5. The Button
         Button btn = new Button(this);
-        btn.setText("Activate Saneel.AI");
+        btn.setText("Activate Shorts Blocker");
         btn.setBackgroundColor(Color.parseColor("#4CAF50"));
         btn.setTextColor(Color.WHITE);
         btn.setPadding(40, 20, 40, 20);
