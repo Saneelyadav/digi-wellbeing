@@ -34,7 +34,7 @@ public class ShortsBlockerService extends AccessibilityService {
         // Calculate Screen Width
         screenWidth = getResources().getDisplayMetrics().widthPixels;
         
-        showToast("Saneel.AI: Deep Geometry Active");
+        showToast("Saneel.AI: Blocking Active");
         startHeartbeat();
     }
 
@@ -67,8 +67,8 @@ public class ShortsBlockerService extends AccessibilityService {
             return; 
         }
 
-        // SCANNING (Deep Recursive Check)
-        boolean isShorts = scanForRightSideButtons(rootNode);
+        // SCANNING (Precision Check)
+        boolean isShorts = scanForRightSideLikeButton(rootNode);
         long now = System.currentTimeMillis();
 
         if (isShorts) {
@@ -92,7 +92,6 @@ public class ShortsBlockerService extends AccessibilityService {
         long blockUntil = prefs.getLong("block_until", 0);
 
         if (now < blockUntil) {
-            // Only block if we CURRENTLY see buttons on the right
             if (isShortsCurrent) {
                 performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
                 if (accumulatedTime > 0) { 
@@ -116,12 +115,12 @@ public class ShortsBlockerService extends AccessibilityService {
         }
     }
 
-    // --- RECURSIVE GEOMETRY SCANNER ---
-    // This looks at EVERY element, checks if it describes a button, AND if it's on the right.
-    private boolean scanForRightSideButtons(AccessibilityNodeInfo node) {
+    // --- PRECISION SCANNER ---
+    // We ONLY look for "Like" or "Dislike".
+    // We IGNORE "Share", "Remix", "Settings", "Cast".
+    private boolean scanForRightSideLikeButton(AccessibilityNodeInfo node) {
         if (node == null) return false;
 
-        // 1. CHECK NODE
         if (node.isVisibleToUser()) {
             CharSequence descSeq = node.getContentDescription();
             CharSequence textSeq = node.getText();
@@ -130,26 +129,28 @@ public class ShortsBlockerService extends AccessibilityService {
             if (descSeq != null) label += descSeq.toString().toLowerCase();
             if (textSeq != null) label += textSeq.toString().toLowerCase();
 
-            // Check for keywords
-            if (label.contains("share") || label.contains("like") || label.contains("comment") || label.contains("remix")) {
+            // STRICT KEYWORDS: Only Like/Dislike
+            // We specifically check for "like this" to avoid "Likely to recommend" etc.
+            if (label.contains("like this") || label.contains("dislike this")) {
                 
-                // 2. CHECK POSITION
+                // CHECK POSITION
                 Rect rect = new Rect();
                 node.getBoundsInScreen(rect);
                 
-                // If it is past 65% of the screen width
-                if (rect.left > (screenWidth * 0.65)) {
-                    return true; // Found a match on the right side!
+                // STRICT GEOMETRY: Must be past 80% of screen width (Very far right)
+                // Normal videos buttons are on the left (0-50%).
+                if (rect.left > (screenWidth * 0.80)) {
+                    return true; // Found a Like button on the edge!
                 }
             }
         }
 
-        // 3. CHECK CHILDREN (Recursion)
+        // Recursion
         int count = node.getChildCount();
         for (int i = 0; i < count; i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             if (child != null) {
-                if (scanForRightSideButtons(child)) {
+                if (scanForRightSideLikeButton(child)) {
                     child.recycle();
                     return true;
                 }
