@@ -8,7 +8,6 @@ import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
-import java.util.List;
 
 public class ShortsBlockerService extends AccessibilityService {
 
@@ -20,7 +19,7 @@ public class ShortsBlockerService extends AccessibilityService {
     // VARIABLES
     private long accumulatedTime = 0; 
     private long lastTimeShortsSeen = 0; 
-    private int screenWidth = 0; // To calculate Right Side
+    private int screenWidth = 0; 
     
     private SharedPreferences prefs;
     private Handler handler;
@@ -32,10 +31,10 @@ public class ShortsBlockerService extends AccessibilityService {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        // 1. Calculate Screen Width
+        // Calculate Screen Width
         screenWidth = getResources().getDisplayMetrics().widthPixels;
         
-        showToast("Saneel.AI: Active (Right-Side Detector)");
+        showToast("Saneel.AI: Deep Geometry Active");
         startHeartbeat();
     }
 
@@ -61,15 +60,15 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // 2. BATTERY GUARD
+        // BATTERY GUARD
         CharSequence packageName = rootNode.getPackageName();
         if (packageName == null || !packageName.toString().equals("com.google.android.youtube")) {
             accumulatedTime = 0;
             return; 
         }
 
-        // 3. SCANNING (Right-Side Buttons)
-        boolean isShorts = isRightSideButtonVisible(rootNode);
+        // SCANNING (Deep Recursive Check)
+        boolean isShorts = scanForRightSideButtons(rootNode);
         long now = System.currentTimeMillis();
 
         if (isShorts) {
@@ -80,13 +79,11 @@ public class ShortsBlockerService extends AccessibilityService {
                 showToast("Used: " + (accumulatedTime/1000) + "s / 60s");
             }
         } else {
-            // Only reset if gone for > 10 seconds
             if ((now - lastTimeShortsSeen) > RESET_TIMEOUT_MS) {
                 accumulatedTime = 0;
             }
         }
 
-        // 4. CHECK LIMITS
         checkTimeLimit(isShorts);
     }
 
@@ -94,9 +91,8 @@ public class ShortsBlockerService extends AccessibilityService {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // PENALTY BOX
         if (now < blockUntil) {
-            // CRITICAL: Only block if buttons are currently on the Right Side
+            // Only block if we CURRENTLY see buttons on the right
             if (isShortsCurrent) {
                 performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
                 if (accumulatedTime > 0) { 
@@ -108,7 +104,6 @@ public class ShortsBlockerService extends AccessibilityService {
             return;
         }
 
-        // TIME IS UP
         if (accumulatedTime >= ALLOWED_TIME_MS) {
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); 
@@ -121,30 +116,44 @@ public class ShortsBlockerService extends AccessibilityService {
         }
     }
 
-    // --- NEW DETECTOR: Right-Side Geometry Check ---
-    private boolean isRightSideButtonVisible(AccessibilityNodeInfo root) {
-        // Check for any of these buttons sticking to the right edge
-        if (checkButtonPosition(root, "Share")) return true;
-        if (checkButtonPosition(root, "Like")) return true;
-        if (checkButtonPosition(root, "Dislike")) return true;
-        if (checkButtonPosition(root, "Comment")) return true;
-        return false;
-    }
+    // --- RECURSIVE GEOMETRY SCANNER ---
+    // This looks at EVERY element, checks if it describes a button, AND if it's on the right.
+    private boolean scanForRightSideButtons(AccessibilityNodeInfo node) {
+        if (node == null) return false;
 
-    private boolean checkButtonPosition(AccessibilityNodeInfo root, String text) {
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
-        
-        for (AccessibilityNodeInfo node : nodes) {
-            if (!node.isVisibleToUser()) continue;
-
-            Rect rect = new Rect();
-            node.getBoundsInScreen(rect);
+        // 1. CHECK NODE
+        if (node.isVisibleToUser()) {
+            CharSequence descSeq = node.getContentDescription();
+            CharSequence textSeq = node.getText();
             
-            // GEOMETRY MATH:
-            // If the button starts past 60% of the screen width, it is on the Right Side.
-            // (Shorts buttons are pinned to the right edge. Normal video buttons are Left/Center)
-            if (rect.left > (screenWidth * 0.60)) {
-                return true;
+            String label = "";
+            if (descSeq != null) label += descSeq.toString().toLowerCase();
+            if (textSeq != null) label += textSeq.toString().toLowerCase();
+
+            // Check for keywords
+            if (label.contains("share") || label.contains("like") || label.contains("comment") || label.contains("remix")) {
+                
+                // 2. CHECK POSITION
+                Rect rect = new Rect();
+                node.getBoundsInScreen(rect);
+                
+                // If it is past 65% of the screen width
+                if (rect.left > (screenWidth * 0.65)) {
+                    return true; // Found a match on the right side!
+                }
+            }
+        }
+
+        // 3. CHECK CHILDREN (Recursion)
+        int count = node.getChildCount();
+        for (int i = 0; i < count; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                if (scanForRightSideButtons(child)) {
+                    child.recycle();
+                    return true;
+                }
+                child.recycle();
             }
         }
         return false;
@@ -164,4 +173,4 @@ public class ShortsBlockerService extends AccessibilityService {
         }
         isLoopRunning = false;
     }
-}
+    }
