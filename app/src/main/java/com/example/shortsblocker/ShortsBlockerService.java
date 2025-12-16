@@ -2,11 +2,13 @@ package com.example.shortsblocker;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.SharedPreferences;
+import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
+import java.util.List;
 
 public class ShortsBlockerService extends AccessibilityService {
 
@@ -17,7 +19,8 @@ public class ShortsBlockerService extends AccessibilityService {
 
     // VARIABLES
     private long accumulatedTime = 0; 
-    private long lastTimeRemixSeen = 0; 
+    private long lastTimeShortsSeen = 0; 
+    private int screenWidth = 0; // To calculate Right Side
     
     private SharedPreferences prefs;
     private Handler handler;
@@ -29,7 +32,10 @@ public class ShortsBlockerService extends AccessibilityService {
         prefs = getSharedPreferences("SaneelAI_Prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        showToast("Saneel.AI: Active (Targeted Blocking)");
+        // 1. Calculate Screen Width
+        screenWidth = getResources().getDisplayMetrics().widthPixels;
+        
+        showToast("Saneel.AI: Active (Right-Side Detector)");
         startHeartbeat();
     }
 
@@ -55,19 +61,19 @@ public class ShortsBlockerService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
 
-        // 1. BATTERY GUARD
+        // 2. BATTERY GUARD
         CharSequence packageName = rootNode.getPackageName();
         if (packageName == null || !packageName.toString().equals("com.google.android.youtube")) {
             accumulatedTime = 0;
             return; 
         }
 
-        // 2. SCANNING
-        boolean isShorts = isRemixButtonVisible(rootNode);
+        // 3. SCANNING (Right-Side Buttons)
+        boolean isShorts = isRightSideButtonVisible(rootNode);
         long now = System.currentTimeMillis();
 
         if (isShorts) {
-            lastTimeRemixSeen = now;
+            lastTimeShortsSeen = now;
             accumulatedTime += 1000; 
             
             if (accumulatedTime % 10000 == 0) {
@@ -75,12 +81,12 @@ public class ShortsBlockerService extends AccessibilityService {
             }
         } else {
             // Only reset if gone for > 10 seconds
-            if ((now - lastTimeRemixSeen) > RESET_TIMEOUT_MS) {
+            if ((now - lastTimeShortsSeen) > RESET_TIMEOUT_MS) {
                 accumulatedTime = 0;
             }
         }
 
-        // 3. CHECK LIMITS (Pass 'isShorts' so we know WHAT to block)
+        // 4. CHECK LIMITS
         checkTimeLimit(isShorts);
     }
 
@@ -88,23 +94,21 @@ public class ShortsBlockerService extends AccessibilityService {
         long now = System.currentTimeMillis();
         long blockUntil = prefs.getLong("block_until", 0);
 
-        // --- PENALTY BOX LOGIC ---
+        // PENALTY BOX
         if (now < blockUntil) {
-            // CRITICAL FIX: Only block if user is CURRENTLY trying to watch a Short
+            // CRITICAL: Only block if buttons are currently on the Right Side
             if (isShortsCurrent) {
                 performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
-                
-                // Show message
-                long minsLeft = (blockUntil - now) / 60000;
-                showToast("Blocked! " + (minsLeft + 1) + "m penalty left.");
+                if (accumulatedTime > 0) { 
+                    long minsLeft = (blockUntil - now) / 60000;
+                    showToast("Blocked! " + (minsLeft + 1) + "m left.");
+                }
             }
-            // If isShortsCurrent is FALSE (Home screen), we do NOTHING.
-            
             accumulatedTime = 0;
             return;
         }
 
-        // --- TIME IS UP LOGIC ---
+        // TIME IS UP
         if (accumulatedTime >= ALLOWED_TIME_MS) {
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);
             performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK); 
@@ -117,28 +121,30 @@ public class ShortsBlockerService extends AccessibilityService {
         }
     }
 
-    // Recursive Scanner
-    private boolean isRemixButtonVisible(AccessibilityNodeInfo node) {
-        if (node == null) return false;
-        
-        CharSequence textSeq = node.getText();
-        CharSequence descSeq = node.getContentDescription();
-        String text = (textSeq != null) ? textSeq.toString().toLowerCase() : "";
-        String desc = (descSeq != null) ? descSeq.toString().toLowerCase() : "";
-        
-        if ((text.contains("remix") || desc.contains("remix")) && node.isVisibleToUser()) {
-            return true;
-        }
+    // --- NEW DETECTOR: Right-Side Geometry Check ---
+    private boolean isRightSideButtonVisible(AccessibilityNodeInfo root) {
+        // Check for any of these buttons sticking to the right edge
+        if (checkButtonPosition(root, "Share")) return true;
+        if (checkButtonPosition(root, "Like")) return true;
+        if (checkButtonPosition(root, "Dislike")) return true;
+        if (checkButtonPosition(root, "Comment")) return true;
+        return false;
+    }
 
-        int count = node.getChildCount();
-        for (int i = 0; i < count; i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            if (child != null) {
-                if (isRemixButtonVisible(child)) {
-                    child.recycle();
-                    return true;
-                }
-                child.recycle();
+    private boolean checkButtonPosition(AccessibilityNodeInfo root, String text) {
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
+        
+        for (AccessibilityNodeInfo node : nodes) {
+            if (!node.isVisibleToUser()) continue;
+
+            Rect rect = new Rect();
+            node.getBoundsInScreen(rect);
+            
+            // GEOMETRY MATH:
+            // If the button starts past 60% of the screen width, it is on the Right Side.
+            // (Shorts buttons are pinned to the right edge. Normal video buttons are Left/Center)
+            if (rect.left > (screenWidth * 0.60)) {
+                return true;
             }
         }
         return false;
